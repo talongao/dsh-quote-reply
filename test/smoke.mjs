@@ -433,28 +433,6 @@ assert.equal(md(frag([el('div', {}, [el('button', {}, [t('复制')]), t('body')]
   }
 }
 
-// ---- ①f 结构不变量：浮动工具条必须是「引用 + 复制」两个按钮 ----
-{
-  const regionStart = source.indexOf("if (anchor !== null && !open) {")
-  const regionEnd = source.indexOf('if (open) {', regionStart)
-  assert.ok(regionStart > 0 && regionEnd > regionStart, '找不到工具条渲染段')
-  const trigger = source.slice(regionStart, regionEnd)
-  const items = trigger.match(/className: 'dqr-trigger-item'/g) || []
-  assert.equal(items.length, 2, '浮动工具条应当恰好有两个按钮（引用 / 复制）')
-  assert.ok(trigger.includes('onClick: openPopover'), '第一个按钮打开回复弹窗')
-  assert.ok(trigger.includes('onClick: doCopy'), '第二个按钮执行复制')
-  assert.ok(trigger.includes('dqr-trigger-sep'), '两个按钮之间应有分隔线')
-  // 复制按钮的文案必须随 copyState 变化，否则用户看不到「已复制」反馈。
-  assert.ok(/copyState === 'copied'/.test(trigger), '复制成功后按钮要显示「已复制」')
-  assert.ok(/copyState === 'failed'/.test(trigger), '复制失败后按钮要显示「复制失败」')
-
-  // 文案表两套语言都要有这四个键，否则切换语言时会出现 undefined。
-  for (const key of ['copy', 'copied', 'copyFailed', 'copyTitle']) {
-    const hits = source.match(new RegExp(`\\b${key}:`, 'g')) || []
-    assert.ok(hits.length >= 2, `STRINGS 的 ${key} 必须在 zh 与 en 里各有一份`)
-  }
-}
-
 // 文件提及（宿主渲染成 <code><button class="fileMention">路径</button></code>）
 assert.equal(
   md(frag([el('code', {}, [el('button', { class: 'fileMention' }, [t('src/a.ts')])])])),
@@ -491,6 +469,28 @@ assert.equal(
   '- run\n  ```\n  npm i\n  ```\n\n',
   '列表项里的代码块要换行缩进，不能压成一行',
 )
+
+// ---- ①f 结构不变量：浮动工具条必须是「引用 + 复制」两个按钮 ----
+{
+  const regionStart = source.indexOf("if (anchor !== null && !open) {")
+  const regionEnd = source.indexOf('if (open) {', regionStart)
+  assert.ok(regionStart > 0 && regionEnd > regionStart, '找不到工具条渲染段')
+  const trigger = source.slice(regionStart, regionEnd)
+  const items = trigger.match(/className: 'dqr-trigger-item'/g) || []
+  assert.equal(items.length, 2, '浮动工具条应当恰好有两个按钮（引用 / 复制）')
+  assert.ok(trigger.includes('onClick: openPopover'), '第一个按钮打开回复弹窗')
+  assert.ok(trigger.includes('onClick: doCopy'), '第二个按钮执行复制')
+  assert.ok(trigger.includes('dqr-trigger-sep'), '两个按钮之间应有分隔线')
+  // 复制按钮的文案必须随 copyState 变化，否则用户看不到「已复制」反馈。
+  assert.ok(/copyState === 'copied'/.test(trigger), '复制成功后按钮要显示「已复制」')
+  assert.ok(/copyState === 'failed'/.test(trigger), '复制失败后按钮要显示「复制失败」')
+
+  // 文案表两套语言都要有这四个键，否则切换语言时会出现 undefined。
+  for (const key of ['copy', 'copied', 'copyFailed', 'copyTitle']) {
+    const hits = source.match(new RegExp(`\\b${key}:`, 'g')) || []
+    assert.ok(hits.length >= 2, `STRINGS 的 ${key} 必须在 zh 与 en 里各有一份`)
+  }
+}
 
 // ---- ② 模块工厂：最小 DOM / React 桩 ----
 function makeElement(tag) {
