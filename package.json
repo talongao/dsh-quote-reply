@@ -1,7 +1,7 @@
 {
   "name": "dsh-quote-reply",
-  "version": "0.1.0",
-  "description": "Select text in a DeepSeek-Harness conversation and quote it into the composer, or send the quoted reply immediately. 选中对话文本 → 浮动引用按钮 → 弹窗写回复：插入引用或直接发送。",
+  "version": "0.2.0",
+  "description": "Select text in a DeepSeek-Harness conversation and quote it into the composer, send the quoted reply immediately, or copy the selection as Markdown. 选中对话文本 → 浮动工具条：引用插入输入框 / 直接发送 / 以 Markdown 复制。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -30,7 +30,9 @@
     "deepseek-harness",
     "quote",
     "selection",
-    "reply"
+    "reply",
+    "markdown",
+    "copy"
   ],
   "repository": {
     "type": "git",

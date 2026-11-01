@@ -1,14 +1,18 @@
 /**
  * dsh-quote-reply 冒烟测试（node，无需浏览器）。
  *
- * 覆盖五件事：
+ * 覆盖这些事：
  *   ① 纯文本拼装（quoteBlock / compose / appendToDraft）——从源码切片求值，测的就是线上那份实现；
- *   ② 定位（layout）——按钮必须悬在选区上方，绝不压住选中文字；
- *   ③ CSS 不变量——hover 不得改背景、不得用宿主没有的主题令牌（"按钮变透明"那个 bug）；
- *   ④ 模块工厂能否在最小 DOM 桩上加载并导出 {apply, inject, name}；
- *   ⑤ apply() 是否挂载容器、卸载时是否清理干净（含热重载去重）。
+ *   ①b 定位（layout）——按钮必须悬在选区上方，绝不压住选中文字；
+ *   ①c CSS 不变量——hover 不得改背景、不得用宿主没有的主题令牌（"按钮变透明"那个 bug）；
+ *   ①d markdown 序列化——把渲染后的 DOM 反推回 markdown（复制功能）；
+ *   ①e 剪贴板——优先 Clipboard API，兜底 execCommand，且必须还原用户选区；
+ *   ①f 结构不变量——浮动工具条必须是「引用 + 复制」两个按钮；
+ *   ② 模块工厂能否在最小 DOM 桩上加载并导出 {apply, inject, name}；
+ *   ③ apply() 是否挂载容器、卸载时是否清理干净（含热重载去重）。
  *
  * 运行：node test/smoke.mjs
+ * 真 DOM 版（需要 jsdom，可选）：node test/dom.mjs
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -264,6 +268,229 @@ const box = (left, top, right, bottom) => ({ left, top, right, bottom, width: ri
     `.dqr-btn-primary 底色 ${bgHex} 与文字色 ${fgHex} 对比度只有 ${contrast.toFixed(2)}:1，低于 4.5:1（按钮文字会看不清）`,
   )
 }
+
+// ---- ①d markdown 序列化：把渲染后的 DOM 反推回 markdown ----
+const mdStart = source.indexOf('//#region markdown 序列化')
+const mdEnd = source.indexOf('//#endregion', mdStart)
+assert.ok(mdStart > 0 && mdEnd > mdStart, '找不到 markdown 序列化 region')
+const mdSrc = source.slice(source.indexOf('\n', mdStart) + 1, mdEnd)
+const { markdownFromRange, mdSerialize, mdChildren } = new Function(
+  `${mdSrc}; return { markdownFromRange, mdSerialize, mdChildren }`,
+)()
+
+// 极简假 DOM：只提供序列化器真正用到的属性面。
+const t = (value) => ({ nodeType: 3, nodeValue: value, childNodes: [] })
+const el = (tag, attrs = {}, kids = []) => ({
+  nodeType: 1,
+  tagName: tag.toUpperCase(),
+  attributes: attrs,
+  childNodes: kids,
+  getAttribute: (name) => (name in attrs ? attrs[name] : null),
+})
+const frag = (kids) => ({ nodeType: 11, childNodes: kids })
+const md = (node) => mdChildren(node, { pre: false })
+
+assert.equal(md(frag([t('hello')])), 'hello', '纯文本原样输出')
+assert.equal(md(frag([el('p', {}, [t('a'), el('strong', {}, [t('b')]), t('c')])])), 'a**b**c\n\n')
+assert.equal(md(frag([el('em', {}, [t('x')])])), '*x*')
+assert.equal(md(frag([el('del', {}, [t('x')])])), '~~x~~')
+assert.equal(md(frag([el('code', {}, [t('inline')])])), '`inline`', '行内代码')
+assert.equal(md(frag([el('code', {}, [t('a`b')])])), '``a`b``', '含反引号的行内代码要加宽围栏')
+assert.equal(
+  md(frag([el('a', { href: 'https://x.dev' }, [t('link')])])),
+  '[link](https://x.dev)',
+  '链接',
+)
+assert.equal(md(frag([el('a', { href: '#anchor' }, [t('jump')])])), 'jump', '页内锚点退化为纯文本')
+assert.equal(md(frag([el('h2', {}, [t('Title')])])), '## Title\n\n', '标题层级')
+assert.equal(md(frag([el('br')])), '\n')
+
+// 列表：无序 / 有序 / 嵌套
+assert.equal(md(frag([el('ul', {}, [el('li', {}, [t('a')]), el('li', {}, [t('b')])])])), '- a\n- b\n\n')
+assert.equal(
+  md(frag([el('ol', { start: '3' }, [el('li', {}, [t('c')]), el('li', {}, [t('d')])])])),
+  '3. c\n4. d\n\n',
+  '有序列表要尊重 start',
+)
+assert.equal(
+  md(frag([el('ul', {}, [el('li', {}, [t('a'), el('ul', {}, [el('li', {}, [t('a1')])])])])])),
+  '- a\n  - a1\n\n',
+  '嵌套列表缩进两个空格',
+)
+
+// 引用块
+assert.equal(md(frag([el('blockquote', {}, [el('p', {}, [t('q')])])])), '> q\n\n')
+
+// 围栏代码块：宿主渲染成 div.md-code-block > 横幅 + [data-code-block-content] > pre > code
+const hostCodeBlock = el('div', { class: 'md-code-block' }, [
+  el('div', { 'data-code-block-banner': '' }, [
+    el('div', { class: 'infostring' }, [t('ts')]),
+    el('div', { class: 'action' }, [el('button', {}, [t('Copy')])]),
+  ]),
+  el('div', { 'data-code-block-content': '' }, [
+    el('pre', {}, [el('code', { class: 'language-ts' }, [t('const a = 1')])]),
+  ]),
+])
+assert.equal(md(frag([hostCodeBlock])), '```ts\nconst a = 1\n```\n\n', '宿主代码块结构 → 围栏代码块')
+
+// 代码块里出现 ``` 时围栏要加宽
+assert.equal(md(frag([el('pre', {}, [t('a ``` b')])])), '````\na ``` b\n````\n\n')
+
+// GFM 表格
+const table = el('div', { class: 'tableScroll' }, [
+  el('table', {}, [
+    el('thead', {}, [el('tr', {}, [el('th', {}, [t('A')]), el('th', {}, [t('B')])])]),
+    el('tbody', {}, [
+      el('tr', {}, [el('td', {}, [t('1')]), el('td', {}, [t('2')])]),
+    ]),
+  ]),
+])
+assert.equal(md(frag([table])), '| A | B |\n| --- | --- |\n| 1 | 2 |\n\n', 'GFM 表格')
+
+// 表格单元格里的 | 要转义
+assert.equal(
+  md(frag([el('table', {}, [el('tr', {}, [el('th', {}, [t('a|b')])])])])),
+  '| a\\|b |\n| --- |\n\n',
+  '单元格内的竖线要转义',
+)
+
+// 任务列表
+assert.equal(
+  md(frag([el('ul', {}, [el('li', {}, [el('input', { type: 'checkbox', checked: '' }), t(' done')])])])),
+  '- [x] done\n\n',
+  '任务列表复选框',
+)
+
+// 非正文节点必须被跳过（复制按钮的文字不能混进 markdown）
+assert.equal(md(frag([el('div', {}, [el('button', {}, [t('复制')]), t('body')])])), 'body\n\n')
+
+// markdownFromRange 走 cloneContents
+{
+  const range = {
+    cloneContents: () => frag([el('p', {}, [t('x'), el('strong', {}, [t('y')])])]),
+  }
+  assert.equal(markdownFromRange(range), 'x**y**', 'markdownFromRange 应基于 cloneContents 结果')
+  assert.equal(markdownFromRange(null), '', '没有 range 时返回空串')
+}
+
+// ---- ①e 剪贴板：优先 Clipboard API，失败退回 execCommand，且必须还原选区 ----
+{
+  const clipStart = source.indexOf('//#region 剪贴板')
+  const clipEnd = source.indexOf('//#endregion', clipStart)
+  assert.ok(clipStart > 0 && clipEnd > clipStart, '找不到剪贴板 region')
+  const clipSrc = source.slice(source.indexOf('\n', clipStart) + 1, clipEnd)
+
+  // 用假的 window/document/navigator 求值，返回 writeClipboard 供下面逐个场景调用。
+  const makeClip = ({ clipboard, execOk }) => {
+    const ranges = ['r1', 'r2']
+    const selection = {
+      rangeCount: ranges.length,
+      removed: 0,
+      readded: [],
+      getRangeAt(i) { return ranges[i] },
+      removeAllRanges() { this.removed += 1; this.rangeCount = 0 },
+      addRange(r) { this.readded.push(r) },
+    }
+    const area = {
+      value: '',
+      style: {},
+      setAttribute() {},
+      select() { this.selected = true },
+      remove() { this.removed = true },
+    }
+    const doc = {
+      body: { appendChild() {} },
+      activeElement: null,
+      createElement: () => area,
+      execCommand(cmd) { return cmd === 'copy' ? execOk : false },
+    }
+    const win = { getSelection: () => selection }
+    const nav = clipboard ? { clipboard } : {}
+    const fn = new Function('window', 'document', 'navigator', `${clipSrc}; return writeClipboard`)
+    return { write: fn(win, doc, nav), selection, area }
+  }
+
+  // 1) Clipboard API 正常：直接成功，不碰 execCommand，不动选区。
+  {
+    const ctx = makeClip({ clipboard: { writeText: async () => {} }, execOk: false })
+    assert.equal(await ctx.write('hello'), true, 'Clipboard API 成功时返回 true')
+    assert.equal(ctx.selection.removed, 0, '成功路径不应动选区')
+  }
+
+  // 2) Clipboard API reject（页面失焦）：退回 execCommand，并且选区必须被还原。
+  {
+    const ctx = makeClip({ clipboard: { writeText: async () => { throw new Error('denied') } }, execOk: true })
+    assert.equal(await ctx.write('hello'), true, '兜底路径成功时返回 true')
+    assert.equal(ctx.area.value, 'hello', '兜底路径应把文本放进隐藏 textarea')
+    assert.ok(ctx.selection.removed >= 1, '兜底路径会清空选区')
+    assert.deepEqual(ctx.selection.readded, ['r1', 'r2'], '兜底路径必须把原选区还回去')
+  }
+
+  // 3) 两条路都失败：返回 false（UI 显示「复制失败」）。
+  {
+    const ctx = makeClip({ clipboard: { writeText: async () => { throw new Error('denied') } }, execOk: false })
+    assert.equal(await ctx.write('hello'), false, '全失败时返回 false')
+  }
+}
+
+// ---- ①f 结构不变量：浮动工具条必须是「引用 + 复制」两个按钮 ----
+{
+  const regionStart = source.indexOf("if (anchor !== null && !open) {")
+  const regionEnd = source.indexOf('if (open) {', regionStart)
+  assert.ok(regionStart > 0 && regionEnd > regionStart, '找不到工具条渲染段')
+  const trigger = source.slice(regionStart, regionEnd)
+  const items = trigger.match(/className: 'dqr-trigger-item'/g) || []
+  assert.equal(items.length, 2, '浮动工具条应当恰好有两个按钮（引用 / 复制）')
+  assert.ok(trigger.includes('onClick: openPopover'), '第一个按钮打开回复弹窗')
+  assert.ok(trigger.includes('onClick: doCopy'), '第二个按钮执行复制')
+  assert.ok(trigger.includes('dqr-trigger-sep'), '两个按钮之间应有分隔线')
+  // 复制按钮的文案必须随 copyState 变化，否则用户看不到「已复制」反馈。
+  assert.ok(/copyState === 'copied'/.test(trigger), '复制成功后按钮要显示「已复制」')
+  assert.ok(/copyState === 'failed'/.test(trigger), '复制失败后按钮要显示「复制失败」')
+
+  // 文案表两套语言都要有这四个键，否则切换语言时会出现 undefined。
+  for (const key of ['copy', 'copied', 'copyFailed', 'copyTitle']) {
+    const hits = source.match(new RegExp(`\\b${key}:`, 'g')) || []
+    assert.ok(hits.length >= 2, `STRINGS 的 ${key} 必须在 zh 与 en 里各有一份`)
+  }
+}
+
+// 文件提及（宿主渲染成 <code><button class="fileMention">路径</button></code>）
+assert.equal(
+  md(frag([el('code', {}, [el('button', { class: 'fileMention' }, [t('src/a.ts')])])])),
+  '`src/a.ts`',
+  '行内代码里的文件提及不能丢内容',
+)
+
+// 数学公式：KaTeX 的 annotation 里藏着原始 TeX
+const katexInline = el('span', { class: 'katex' }, [
+  el('span', { class: 'katex-mathml' }, [
+    el('math', {}, [
+      el('semantics', {}, [
+        el('annotation', { encoding: 'application/x-tex' }, [t('a^2+b^2')]),
+      ]),
+    ]),
+  ]),
+  el('span', { class: 'katex-html', 'aria-hidden': 'true' }, [t('a2+b2')]),
+])
+assert.equal(md(frag([katexInline])), '$a^2+b^2$', '行内公式取 annotation 里的 TeX')
+
+const katexBlock = el('span', { class: 'katex-display' }, [
+  el('span', { class: 'katex' }, [
+    el('annotation', { encoding: 'application/x-tex' }, [t('\\int_0^1 x\\,dx')]),
+  ]),
+])
+assert.equal(md(frag([katexBlock])), '$$\n\\int_0^1 x\\,dx\n$$\n\n', '块级公式')
+
+// 普通按钮仍然要被丢掉（复制按钮的文字不能混进来）
+assert.equal(md(frag([el('button', { class: 'action' }, [t('Copy')])])), '')
+
+// 列表项里嵌代码块：代码块不能被压进那一行里
+assert.equal(
+  md(frag([el('ul', {}, [el('li', {}, [t('run'), el('pre', {}, [t('npm i')])])])])),
+  '- run\n  ```\n  npm i\n  ```\n\n',
+  '列表项里的代码块要换行缩进，不能压成一行',
+)
 
 // ---- ② 模块工厂：最小 DOM / React 桩 ----
 function makeElement(tag) {
