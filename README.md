@@ -12,17 +12,21 @@ Select text in any conversation message → a **Quote** button floats above the 
 
 ## Install
 
-```sh
-dsh plugin --profile web add dsh-quote-reply
-```
+**DSH Desktop:** open **Settings → Plugins**, search `dsh-quote-reply`, install through the app's own plugin manager, then restart the app and reload the page.
 
-Then restart DeepSeek-Harness (the browser half ships with the boot manifest) and reload the page.
-
-From a checkout instead of npm:
+**Plain `dsh web`:** install into the profile that `dsh web` actually uses, then restart it:
 
 ```sh
-dsh plugin --profile web add github:talongao/dsh-quote-reply
+dsh plugin --profile <profile> add dsh-quote-reply
 ```
+
+Straight from GitHub, before (or instead of) the npm release:
+
+```sh
+dsh plugin --profile <profile> add github:talongao/dsh-quote-reply
+```
+
+The browser half ships with the boot manifest, so **a restart is required** — reloading the page alone will not pick it up.
 
 ## 中文说明
 
@@ -93,7 +97,7 @@ node test/smoke.mjs          # 冒烟测试，不需要浏览器
 node --check lib/client.js   # 语法
 ```
 
-安装（bundle 目录）：
+安装（本地 bundle 目录，开发时用）：
 
 ```
 plugin_manager action=install_bundle target=<绝对路径>
