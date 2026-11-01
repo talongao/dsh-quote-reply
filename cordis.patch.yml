@@ -1,0 +1,6 @@
+# dsh-quote-reply bundle patch layer
+# 一行：host 半侧（本包默认导出，Cordis 插件）+ 浏览器半侧（dsh.client 声明 → ./client）。
+# 行名必须等于包名：client-modules 的 node 半侧用 require.resolve('<row-name>/package.json') 找包。
+- insert:
+    - id: dsh-quote-reply
+      name: 'dsh-quote-reply'

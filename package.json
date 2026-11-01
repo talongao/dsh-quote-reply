@@ -1,0 +1,51 @@
+{
+  "name": "dsh-quote-reply",
+  "version": "0.1.0",
+  "description": "Select text in a DeepSeek-Harness conversation and quote it into the composer, or send the quoted reply immediately. 选中对话文本 → 浮动引用按钮 → 弹窗写回复：插入引用或直接发送。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "quote",
+    "selection",
+    "reply"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/talongao/dsh-quote-reply.git"
+  },
+  "homepage": "https://github.com/talongao/dsh-quote-reply#readme",
+  "bugs": {
+    "url": "https://github.com/talongao/dsh-quote-reply/issues"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "engines": {
+    "node": ">=22.13.0",
+    "dsh": ">=0.2.1-rc.1"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,113 @@
+# dsh-quote-reply
+
+Select text in any conversation message → a **Quote** button floats above the selection → a popover takes your reply → two ways out:
+
+| Button | What it does |
+| --- | --- |
+| **Add to composer** | Writes `> quoted text` + blank line + your reply into the composer, **without sending** (appends to an existing draft) |
+| **Send now** | Sends that same block immediately as a message |
+| Cancel / `Esc` / click away | Dismisses |
+
+`⌘/Ctrl + ↵` is the same as **Send now**.
+
+## Install
+
+```sh
+dsh plugin --profile web add dsh-quote-reply
+```
+
+Then restart DeepSeek-Harness (the browser half ships with the boot manifest) and reload the page.
+
+From a checkout instead of npm:
+
+```sh
+dsh plugin --profile web add github:talongao/dsh-quote-reply
+```
+
+## 中文说明
+
+选中对话里的任意文本 → 选区上方浮出「引用」按钮 → 弹窗写回复 → 两个动作：
+
+| 按钮 | 行为 |
+| --- | --- |
+| **添加到对话框** | 把 `> 原文` + 空行 + 你的回复写进输入框，**不发送**（已有草稿时接在后面） |
+| **直接发送** | 把同一段文本立刻作为消息发出去 |
+| 取消 / `Esc` / 点空白 | 收起 |
+
+`⌘/Ctrl + ↵` 等价于「直接发送」。
+
+## 生成的文本
+
+```
+> 被选中的原文第一行
+> 第二行（多行选区每行都带 >）
+
+你的回复
+```
+
+只选中不写回复时，插入的只有引用块本身。
+
+## 交互细节
+
+- 选区必须落在对话正文里（`[data-conversation-content]`）；输入框、侧栏、代码块输入区、`iframe`、终端不会触发。
+- 会话身份从选区所在的 `[data-conversation-session]` 读取，多面板/多会话并排时各自正确。
+- 浮层挂在 `document.body` 上的独立 React root，`position: fixed`，不受宿主的 `overflow`/`transform` 裁切。
+- **按钮悬在选区上方、水平居中于选区**，绝不压住选中文字，也绝不掉到下一行。上方空间不够（选区贴视口顶）才落到下方；popover 与按钮同侧展开。
+- 滚动时按钮跟随选区；选区消失即收起。
+- 中文环境显示中文，其余显示英文。
+
+## 样式约束（改 CSS 前必读）
+
+浮层直接压在正文上，所以有一条硬性约束：**它必须永远是不透明的。**
+
+- 底色一律「硬编码实色 `background-color` + 令牌走 `background-image` 叠在上面」。
+  这样即使宿主没定义某个令牌（解析成 `transparent`），实色底也能顶住。
+- `:hover` / `:active` 等状态规则**绝不可以**声明 `background` / `background-color` /
+  `opacity` / `filter` / `backdrop-filter` —— 只改 `border-color` 和 `box-shadow`。
+- 只允许使用宿主主题真实提供的 14 个令牌（见 `test/smoke.mjs` 里的 `HOST_TOKENS`）。
+
+这三条都有测试钉死（`①c CSS 不变量`）。当年「按钮浮于文字下方」的观感问题，真因就是
+`:hover` 用了宿主不存在的 `--dsw-alias-interactive-bg-hover`，`background` 简写把实心
+背景整体替换成 82% 透明的灰，鼠标一移上去正文就透出来。
+
+还有第四条：**按钮的底色与文字色必须自己成对硬编码，不能各自去取主题令牌。**
+`--dsw-alias-brand-primary` 在某些主题里是近白色，而文字色 `--dsw-alias-label-primary`
+同样近白 —— 两个令牌各自都没问题，配在一起就是白底白字，按钮变成一块看不见字的白板
+（`.dqr-btn-primary` 曾栽在这上面，用户看到的是一块纯白矩形）。所以主按钮固定
+`background: #2f6fed` + `color: #ffffff`，测试会算 WCAG 对比度，低于 4.5:1 直接失败。
+
+## 结构
+
+```
+package.json         dsh.bundle.patch + dsh.client 声明
+cordis.patch.yml     一行 insert，行名 = 包名
+lib/index.js         host 半侧（空插件，只为让 bundle 行可解析）
+lib/client.js        浏览器半侧：选区监听 + 浮层 + 两个动作
+test/smoke.mjs       node 冒烟测试（纯函数 + 定位 + CSS 不变量 + 模块工厂 + apply/dispose）
+```
+
+## 开发
+
+```bash
+node test/smoke.mjs          # 冒烟测试，不需要浏览器
+node --check lib/client.js   # 语法
+```
+
+安装（bundle 目录）：
+
+```
+plugin_manager action=install_bundle target=<绝对路径>
+```
+
+安装后需要**重启 DSH 桌面端**（浏览器半侧在启动时随 boot manifest 下发），
+再刷新 GUI 页面即可看到效果。
+
+## 依赖的宿主契约
+
+| 用途 | 契约 |
+| --- | --- |
+| 定位会话 | `ctx.sessions.scope(sessionId)` → `scope.get('conversation')` |
+| 写输入框 | `conversation.input.for(scope).setDraft(text)` / `.focus()` |
+| 读现有草稿 | `input.state.getSnapshot().draft` |
+| 直接发送 | `conversation.send(text)` |
+| 会话 DOM | `[data-conversation-content]` / `[data-conversation-session]` / `[data-conversation-region="composer"]` |
